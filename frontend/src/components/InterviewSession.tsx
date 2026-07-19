@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Clock, Send, AlertCircle, Mic, MicOff, Square, Volume2, VolumeX, MessageCircle, Loader2 } from 'lucide-react';
-import { submitMockInterview, generateFollowUp } from '../services/api';
+import { submitMockInterview, generateFollowUp, fetchInterviewReport } from '../services/api';
 
 // Extend Window type to include SpeechRecognition
 declare global {
@@ -371,8 +371,9 @@ export default function InterviewSession({
         };
 
         try {
-          const evaluation = await submitMockInterview(interviewId, formattedPayload);
-          onInterviewCompleted(evaluation);
+          await submitMockInterview(interviewId, formattedPayload);
+          const fullReport = await fetchInterviewReport(interviewId);
+          onInterviewCompleted(fullReport);
         } catch (err: any) {
           setError(err.message || 'Submission failed. Please check backend connection.');
           setLoading(false);
@@ -595,8 +596,9 @@ export default function InterviewSession({
     };
 
     try {
-      const evaluation = await submitMockInterview(interviewId, formattedPayload);
-      onInterviewCompleted(evaluation);
+      await submitMockInterview(interviewId, formattedPayload);
+      const fullReport = await fetchInterviewReport(interviewId);
+      onInterviewCompleted(fullReport);
     } catch (err: any) {
       setError(err.message || 'Submission failed. Please check backend connection.');
       setLoading(false);
