@@ -114,6 +114,7 @@ export function fetchInterviewReport(interviewId: number) {
 export function generateFollowUp(questionText: string, userAnswer: string, interviewType: string) {
   return request('/interview/followup', {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       question_text: questionText,
       user_answer: userAnswer,
