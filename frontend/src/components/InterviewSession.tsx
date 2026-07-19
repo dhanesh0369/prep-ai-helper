@@ -62,6 +62,25 @@ export default function InterviewSession({
   const [followUpLoading, setFollowUpLoading] = useState(false);
   const [showFollowUp, setShowFollowUp] = useState(false);
 
+  // Delivery metadata state map
+  const [deliveryMetadataMap, setDeliveryMetadataMap] = useState<{
+    [qId: number]: {
+      wpm: number;
+      filler_count: number;
+      volume_status: string;
+    }
+  }>({});
+
+  // Audio context and analysis refs
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const microphoneStreamRef = useRef<MediaStream | null>(null);
+  const volumeValuesRef = useRef<number[]>([]);
+  const audioIntervalRef = useRef<any>(null);
+
+  const recordingStartTimeRef = useRef<number | null>(null);
+  const speakingDurationRef = useRef<number>(0);
+
   // Check browser support and set up SpeechRecognition
   useEffect(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -119,6 +138,8 @@ export default function InterviewSession({
     stopListening();
     typedBeforeVoiceRef.current = '';
     finalSegmentsRef.current = [];
+    speakingDurationRef.current = 0;
+    volumeValuesRef.current = [];
   }, [currentIndex]);
 
   const startListening = useCallback(() => {
@@ -129,6 +150,46 @@ export default function InterviewSession({
     // Clear old voice segments for this new recording session
     finalSegmentsRef.current = [];
     setIsListening(true);
+
+    // Track speech duration start
+    recordingStartTimeRef.current = Date.now();
+
+    // Set up Web Audio Analyser
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      navigator.mediaDevices.getUserMedia({ audio: true })
+        .then((stream) => {
+          microphoneStreamRef.current = stream;
+          const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+          if (AudioContextClass) {
+            const ctx = new AudioContextClass();
+            audioContextRef.current = ctx;
+            const source = ctx.createMediaStreamSource(stream);
+            const analyser = ctx.createAnalyser();
+            analyser.fftSize = 256;
+            source.connect(analyser);
+            analyserRef.current = analyser;
+
+            const bufferLength = analyser.frequencyBinCount;
+            const dataArray = new Uint8Array(bufferLength);
+
+            audioIntervalRef.current = setInterval(() => {
+              if (analyserRef.current) {
+                analyserRef.current.getByteFrequencyData(dataArray);
+                let sum = 0;
+                for (let i = 0; i < bufferLength; i++) {
+                  sum += dataArray[i];
+                }
+                const average = sum / bufferLength;
+                volumeValuesRef.current.push(average);
+              }
+            }, 100);
+          }
+        })
+        .catch((err) => {
+          console.warn('Web Audio capture failed:', err);
+        });
+    }
+
     try {
       recognitionRef.current.start();
     } catch (e) {
@@ -140,6 +201,29 @@ export default function InterviewSession({
     if (!recognitionRef.current) return;
     setIsListening(false);
     setInterimTranscript('');
+
+    // Compute duration
+    if (recordingStartTimeRef.current) {
+      const elapsed = (Date.now() - recordingStartTimeRef.current) / 1000;
+      speakingDurationRef.current += elapsed;
+      recordingStartTimeRef.current = null;
+    }
+
+    // Clean up Web Audio refs
+    if (audioIntervalRef.current) {
+      clearInterval(audioIntervalRef.current);
+      audioIntervalRef.current = null;
+    }
+    if (microphoneStreamRef.current) {
+      microphoneStreamRef.current.getTracks().forEach(track => track.stop());
+      microphoneStreamRef.current = null;
+    }
+    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+      audioContextRef.current.close();
+      audioContextRef.current = null;
+    }
+    analyserRef.current = null;
+
     try {
       recognitionRef.current.stop();
     } catch (e) {
@@ -197,12 +281,59 @@ export default function InterviewSession({
     return () => clearInterval(interval);
   }, [currentIndex, timeLimit]);
 
+  const getDeliveryDataForActive = (answerText: string) => {
+    const wpm = calculateWPM(answerText, speakingDurationRef.current);
+    const fillerCount = countFillerWords(answerText);
+
+    let volumeStatus = 'Consistent';
+    if (volumeValuesRef.current.length > 0) {
+      const sum = volumeValuesRef.current.reduce((a, b) => a + b, 0);
+      const avg = sum / volumeValuesRef.current.length;
+
+      const sqDiffs = volumeValuesRef.current.map(v => Math.pow(v - avg, 2));
+      const variance = sqDiffs.reduce((a, b) => a + b, 0) / volumeValuesRef.current.length;
+      const stdDev = Math.sqrt(variance);
+
+      if (avg < 5) {
+        volumeStatus = 'Too Quiet';
+      } else if (stdDev > 25) {
+        volumeStatus = 'Inconsistent';
+      }
+    }
+
+    return {
+      wpm,
+      filler_count: fillerCount,
+      volume_status: volumeStatus
+    };
+  };
+
+  const calculateWPM = (text: string, durationSec: number): number => {
+    if (durationSec <= 2) return 0;
+    const cleanText = text.replace(/\[Follow-up\].*$/i, '');
+    const wordCount = cleanText.trim().split(/\s+/).filter(Boolean).length;
+    return Math.round((wordCount / durationSec) * 60);
+  };
+
+  const countFillerWords = (text: string): number => {
+    if (!text) return 0;
+    const matches = text.toLowerCase().match(/\b(um|uh|ah|like|basically|actually|you\s+know)\b/g);
+    return matches ? matches.length : 0;
+  };
+
   const handleTimeUp = async () => {
     stopListening();
     setShowTimesUp(true);
 
     const finalAnswerText = currentAnswerRef.current.trim() || "[No response submitted in time]";
     const activeQ = questions[currentIndex];
+
+    // Compute metadata
+    const metadata = getDeliveryDataForActive(finalAnswerText);
+    setDeliveryMetadataMap((prev) => ({
+      ...prev,
+      [activeQ.id]: metadata
+    }));
 
     setAnswers((prev) => ({
       ...prev,
@@ -223,11 +354,20 @@ export default function InterviewSession({
           [activeQ.id]: finalAnswerText
         };
 
+        const finalMetadataMap = {
+          ...deliveryMetadataMap,
+          [activeQ.id]: metadata
+        };
+
         const formattedPayload = {
-          answers: Object.keys(finalAnswers).map((qId) => ({
-            question_id: parseInt(qId),
-            answer_text: finalAnswers[parseInt(qId)]
-          }))
+          answers: Object.keys(finalAnswers).map((qId) => {
+            const idInt = parseInt(qId);
+            return {
+              question_id: idInt,
+              answer_text: finalAnswers[idInt],
+              delivery_metadata: finalMetadataMap[idInt] || null
+            };
+          })
         };
 
         try {
@@ -314,11 +454,21 @@ export default function InterviewSession({
         setShowFollowUp(true);
       } else {
         // No follow-up, advance directly
+        const metadata = getDeliveryDataForActive(currentAnswer);
+        setDeliveryMetadataMap((prev) => ({
+          ...prev,
+          [activeQuestion.id]: metadata
+        }));
         advanceToNextQuestion();
       }
     } catch (err) {
       console.error('Follow-up generation failed:', err);
       // Still advance if follow-up fails
+      const metadata = getDeliveryDataForActive(currentAnswer);
+      setDeliveryMetadataMap((prev) => ({
+        ...prev,
+        [activeQuestion.id]: metadata
+      }));
       advanceToNextQuestion();
     } finally {
       setFollowUpLoading(false);
@@ -332,6 +482,14 @@ export default function InterviewSession({
     const activeQuestion = questions[currentIndex];
     const mainAnswer = answers[activeQuestion.id] || '';
     const combined = mainAnswer + '\n\n[Follow-up] ' + (followUpAnswer.trim() || '[Skipped]');
+    
+    // Calculate combined metadata
+    const metadata = getDeliveryDataForActive(combined);
+    setDeliveryMetadataMap((prev) => ({
+      ...prev,
+      [activeQuestion.id]: metadata
+    }));
+
     setAnswers((prev) => ({
       ...prev,
       [activeQuestion.id]: combined
@@ -345,6 +503,16 @@ export default function InterviewSession({
 
   const skipFollowUp = () => {
     stopSpeaking();
+    const activeQuestion = questions[currentIndex];
+    const mainAnswer = answers[activeQuestion.id] || '';
+
+    // Calculate metadata
+    const metadata = getDeliveryDataForActive(mainAnswer);
+    setDeliveryMetadataMap((prev) => ({
+      ...prev,
+      [activeQuestion.id]: metadata
+    }));
+
     setShowFollowUp(false);
     setFollowUpQuestion(null);
     setFollowUpAnswer('');
@@ -395,10 +563,12 @@ export default function InterviewSession({
     }
 
     // Final submit
-    doFinalSubmit();
+    const activeQuestion = questions[currentIndex];
+    const metadata = getDeliveryDataForActive(currentAnswer);
+    doFinalSubmit(metadata);
   };
 
-  const doFinalSubmit = async () => {
+  const doFinalSubmit = async (lastMetadata?: any) => {
     setLoading(true);
     setError('');
 
@@ -408,11 +578,20 @@ export default function InterviewSession({
       ...(currentAnswer.trim() ? { [lastQuestion.id]: currentAnswer } : {})
     };
 
+    const finalMetadataMap = {
+      ...deliveryMetadataMap,
+      ...(lastMetadata ? { [lastQuestion.id]: lastMetadata } : {})
+    };
+
     const formattedPayload = {
-      answers: Object.keys(finalAnswers).map((qId) => ({
-        question_id: parseInt(qId),
-        answer_text: finalAnswers[parseInt(qId)]
-      }))
+      answers: Object.keys(finalAnswers).map((qId) => {
+        const idInt = parseInt(qId);
+        return {
+          question_id: idInt,
+          answer_text: finalAnswers[idInt],
+          delivery_metadata: finalMetadataMap[idInt] || null
+        };
+      })
     };
 
     try {

@@ -81,5 +81,10 @@ class Response(Base):
     ideal_answer = Column(String, nullable=True)
     submitted_at = Column(DateTime, default=datetime.utcnow)
     
+    # Delivery Metadata
+    wpm = Column(Integer, nullable=True)
+    filler_count = Column(Integer, nullable=True)
+    volume_status = Column(String, nullable=True)
+    
     # Relationships
     question = relationship("Question", back_populates="response")

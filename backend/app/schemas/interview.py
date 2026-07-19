@@ -89,9 +89,15 @@ class StartInterviewRequest(BaseModel):
     difficulty: str = Field("Medium", description="Easy, Medium, Hard")
     job_description: Optional[str] = Field(None, description="Optional job description to target questions to a specific role")
 
+class DeliveryMetadata(BaseModel):
+    wpm: Optional[int] = None
+    filler_count: Optional[int] = None
+    volume_status: Optional[str] = None
+
 class SubmitAnswerItem(BaseModel):
     question_id: int
     answer_text: str
+    delivery_metadata: Optional[DeliveryMetadata] = None
 
 class SubmitInterviewRequest(BaseModel):
     answers: List[SubmitAnswerItem]

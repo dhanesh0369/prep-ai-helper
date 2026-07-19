@@ -11,7 +11,7 @@ interface InterviewReportProps {
 
 export default function InterviewReport({ reportData, onBack }: InterviewReportProps) {
   const [openAccordion, setOpenAccordion] = useState<number | null>(0); // Open first question by default
-  const [activeTabs, setActiveTabs] = useState<{ [qIndex: number]: 'compare' | 'critique' }>({});
+  const [activeTabs, setActiveTabs] = useState<{ [qIndex: number]: 'compare' | 'critique' | 'delivery' }>({});
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
 
   const overallScore = Math.round(reportData.overall_score);
@@ -54,6 +54,29 @@ export default function InterviewReport({ reportData, onBack }: InterviewReportP
       main: parts[0],
       followUp: parts[1] || null
     };
+  };
+
+  // Helpers to get pacing and filler feedback strings
+  const getPacingFeedback = (wpm: number) => {
+    if (!wpm || wpm <= 0) return { label: 'Typed Answer', color: 'var(--text-secondary)', desc: 'Speech pacing was not tracked for this response.' };
+    if (wpm >= 110 && wpm <= 160) {
+      return { label: 'Professional Pace', color: '#10b981', desc: `Steady delivery at ${wpm} WPM. Perfect for interview settings.` };
+    } else if (wpm > 160) {
+      return { label: 'Fast Paced', color: '#f59e0b', desc: `Speaks rapidly at ${wpm} WPM. Try slowing down to project confidence.` };
+    } else {
+      return { label: 'Deliberate / Slow', color: '#f59e0b', desc: `Deliberate pace at ${wpm} WPM. Ensure your energy level remains engaging.` };
+    }
+  };
+
+  const getFillerFeedback = (count: number) => {
+    if (count === undefined || count === null) return { label: 'N/A', color: 'var(--text-secondary)', desc: 'Filler word statistics are unavailable.' };
+    if (count <= 2) {
+      return { label: 'Excellent', color: '#10b981', desc: `Only ${count} filler word(s) detected. Highly concise speech.` };
+    } else if (count <= 5) {
+      return { label: 'Moderate Fillers', color: '#f59e0b', desc: `Detected ${count} filler words. Try replacing fillers with brief pauses.` };
+    } else {
+      return { label: 'High Filler Usage', color: '#f43f5e', desc: `Detected ${count} filler words. Practice speaking in short, structured blocks.` };
+    }
   };
 
   return (
@@ -132,6 +155,13 @@ export default function InterviewReport({ reportData, onBack }: InterviewReportP
           .print-ideal-box {
             background: #f0fdf4 !important;
             border: 1px solid #86efac !important;
+            padding: 12px 16px !important;
+            border-radius: 8px !important;
+            font-size: 0.88rem !important;
+          }
+          .print-delivery-box {
+            background: #f5f3ff !important;
+            border: 1px solid #ddd6fe !important;
             padding: 12px 16px !important;
             border-radius: 8px !important;
             font-size: 0.88rem !important;
@@ -356,6 +386,12 @@ export default function InterviewReport({ reportData, onBack }: InterviewReportP
                     >
                       💡 Critique & Gaps
                     </button>
+                    <button
+                      className={`report-tab-btn ${currentTab === 'delivery' ? 'active' : ''}`}
+                      onClick={() => setActiveTabs({ ...activeTabs, [index]: 'delivery' })}
+                    >
+                      🗣️ Delivery Analytics
+                    </button>
                   </div>
 
                   {/* Tab 1: Response Comparison */}
@@ -438,6 +474,67 @@ export default function InterviewReport({ reportData, onBack }: InterviewReportP
                       </p>
                     </div>
                   )}
+
+                  {/* Tab 3: Delivery Analytics */}
+                  {currentTab === 'delivery' && (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }}>
+                      {/* Pacing gauge */}
+                      <div style={{ padding: '18px', borderRadius: '12px', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                          <span style={{ fontSize: '0.78rem', fontWeight: 800, color: 'var(--text-secondary)', letterSpacing: '0.05em' }}>SPEAKING PACE</span>
+                          <span style={{ fontSize: '0.85rem', fontWeight: 800, color: getPacingFeedback(item.wpm).color }}>
+                            {getPacingFeedback(item.wpm).label}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '8px' }}>
+                          {item.wpm ? `${item.wpm} WPM` : '0 WPM'}
+                        </div>
+                        <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5, margin: 0 }}>
+                          {getPacingFeedback(item.wpm).desc}
+                        </p>
+                      </div>
+
+                      {/* Filler words metric */}
+                      <div style={{ padding: '18px', borderRadius: '12px', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                          <span style={{ fontSize: '0.78rem', fontWeight: 800, color: 'var(--text-secondary)', letterSpacing: '0.05em' }}>CONCISENESS</span>
+                          <span style={{ fontSize: '0.85rem', fontWeight: 800, color: getFillerFeedback(item.filler_count).color }}>
+                            {getFillerFeedback(item.filler_count).label}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '8px' }}>
+                          {item.filler_count !== undefined ? `${item.filler_count} filler(s)` : '0 fillers'}
+                        </div>
+                        <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5, margin: 0 }}>
+                          {getFillerFeedback(item.filler_count).desc}
+                        </p>
+                      </div>
+
+                      {/* Volume/tone stats */}
+                      <div style={{ padding: '18px', borderRadius: '12px', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                          <span style={{ fontSize: '0.78rem', fontWeight: 800, color: 'var(--text-secondary)', letterSpacing: '0.05em' }}>VOICE VOLUME</span>
+                          <span style={{
+                            fontSize: '0.85rem', fontWeight: 800,
+                            color: item.volume_status === 'Consistent' ? '#10b981' : item.volume_status === 'Too Quiet' ? '#f43f5e' : '#f59e0b'
+                          }}>
+                            {item.volume_status || 'Consistent'}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '8px' }}>
+                          {item.volume_status === 'Too Quiet' ? 'Low Amplitude' : item.volume_status === 'Inconsistent' ? 'High Variance' : 'Optimal'}
+                        </div>
+                        <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5, margin: 0 }}>
+                          {item.volume_status === 'Too Quiet'
+                            ? 'Your voice level dropped too low. Try to sit closer to the microphone.'
+                            : item.volume_status === 'Inconsistent'
+                            ? 'High variance in loudness detected. Practice keeping your voice level even.'
+                            : 'Volume levels remained optimal and steady throughout the response.'
+                          }
+                        </p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -494,7 +591,21 @@ export default function InterviewReport({ reportData, onBack }: InterviewReportP
                   </div>
                 )}
 
-                {/* 3. AI Critique */}
+                {/* 3. Speech Delivery Analytics (Printed statically) */}
+                {item.wpm !== undefined && item.wpm > 0 && (
+                  <div>
+                    <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#475569', letterSpacing: '0.05em', marginBottom: '4px' }}>
+                      SPEECH DELIVERY METRICS
+                    </div>
+                    <div className="print-delivery-box" style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
+                      <span><strong>Speaking Pace:</strong> {item.wpm} WPM ({getPacingFeedback(item.wpm).label})</span>
+                      <span><strong>Filler Words:</strong> {item.filler_count} detected ({getFillerFeedback(item.filler_count).label})</span>
+                      <span><strong>Volume Level:</strong> {item.volume_status || 'Consistent'}</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* 4. AI Critique */}
                 <div>
                   <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#475569', letterSpacing: '0.05em', marginBottom: '4px' }}>
                     AI EVALUATION & KEY GAPS
@@ -504,7 +615,7 @@ export default function InterviewReport({ reportData, onBack }: InterviewReportP
                   </div>
                 </div>
 
-                {/* 4. Ideal Exemplar */}
+                {/* 5. Ideal Exemplar */}
                 <div>
                   <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#475569', letterSpacing: '0.05em', marginBottom: '4px' }}>
                     IDEAL EXEMPLAR ANSWER

@@ -119,7 +119,10 @@ async def submit_interview(
         
         response_obj = Response(
             question_id=q.id,
-            user_answer_text=ans.answer_text
+            user_answer_text=ans.answer_text,
+            wpm=ans.delivery_metadata.wpm if ans.delivery_metadata else None,
+            filler_count=ans.delivery_metadata.filler_count if ans.delivery_metadata else None,
+            volume_status=ans.delivery_metadata.volume_status if ans.delivery_metadata else None
         )
         response_objects.append(response_obj)
         
@@ -213,7 +216,10 @@ def get_interview_report(
             "user_answer": resp.user_answer_text if resp else None,
             "score": resp.ai_score if resp else None,
             "feedback": resp.ai_feedback if resp else None,
-            "ideal_answer": resp.ideal_answer if resp else None
+            "ideal_answer": resp.ideal_answer if resp else None,
+            "wpm": resp.wpm if resp else None,
+            "filler_count": resp.filler_count if resp else None,
+            "volume_status": resp.volume_status if resp else None
         })
         
     return {
